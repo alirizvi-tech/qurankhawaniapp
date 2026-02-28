@@ -1,0 +1,320 @@
+# Quran Khuwani Tracker — Full App Prompt for Replit
+
+---
+
+## What to Build
+
+Build a full-stack web app called **"Quran Khuwani Tracker"**. It is used by Pakistani/Muslim families to coordinate Quran recitation for a deceased person (Marhoom). Multiple people each recite one or more Siparas (chapters) of the Quran. This app lets an organizer set up a Khuwani session for a specific Marhoom, then share a public link with participants so they can claim their Siparas online — no login required for participants.
+
+---
+
+## Tech Stack
+
+- **Backend:** Node.js + Express
+- **Database:** SQLite (using `better-sqlite3`) — single file, no setup needed
+- **Frontend:** Plain HTML + CSS + Vanilla JavaScript (no React, no frameworks)
+- **Session/Auth:** bcryptjs for password hashing, express-session for organizer sessions
+- **All in one Replit project**
+
+---
+
+## Two Types of Users
+
+### 1. Organizer
+- Has an account (email + password)
+- Can register / login at `/organizer/login`
+- After login, lands on their **Dashboard**
+- Can create multiple **Khuwanies** (one per Marhoom)
+- Can see all their Khuwanies, progress of each, and copy shareable links
+- Can delete a Khuwani
+- Can reset all Sipara claims for a Khuwani
+
+### 2. Participant
+- Opens a shareable public link like `/k/abc123`
+- No account, no login needed
+- Enters their name on arrival (stored in localStorage)
+- Sees the Sipara grid for that specific Marhoom's Khuwani
+- Can claim available Siparas — they get locked for everyone else instantly
+- Can release their own claimed Siparas
+- Page auto-refreshes every 8 seconds to show live updates from others
+
+---
+
+## Database Schema (SQLite)
+
+### Table: `organizers`
+```
+id INTEGER PRIMARY KEY AUTOINCREMENT
+email TEXT UNIQUE NOT NULL
+password_hash TEXT NOT NULL
+created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+```
+
+### Table: `khuwanies`
+```
+id INTEGER PRIMARY KEY AUTOINCREMENT
+organizer_id INTEGER NOT NULL (foreign key → organizers.id)
+slug TEXT UNIQUE NOT NULL  ← used in the public URL e.g. /k/haji-rehman-x7k2p
+marhoom_name TEXT NOT NULL
+num_qurans INTEGER DEFAULT 1  ← how many full Qurans to complete (1–10)
+created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+```
+
+### Table: `claims`
+```
+id INTEGER PRIMARY KEY AUTOINCREMENT
+khuwani_id INTEGER NOT NULL (foreign key → khuwanies.id)
+quran_number INTEGER NOT NULL  ← which Quran (1, 2, 3...)
+sipara_number INTEGER NOT NULL  ← 1 to 30
+participant_name TEXT NOT NULL
+claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+UNIQUE(khuwani_id, quran_number, sipara_number)  ← prevents double booking
+```
+
+---
+
+## Backend API Routes
+
+### Auth Routes
+- `GET /organizer/login` — show login/register page
+- `POST /organizer/register` — create account (email + password)
+- `POST /organizer/login` — login, start session
+- `POST /organizer/logout` — destroy session
+
+### Organizer Dashboard Routes (require session)
+- `GET /organizer/dashboard` — show all their Khuwanies with progress
+- `POST /organizer/khuwani/create` — create new Khuwani (marhoom_name, num_qurans)
+- `POST /organizer/khuwani/:id/delete` — delete a Khuwani and all its claims
+- `POST /organizer/khuwani/:id/reset` — delete all claims for a Khuwani (keep Khuwani)
+
+### Public Participant Routes (no auth needed)
+- `GET /k/:slug` — show the participant view for that Khuwani
+- `GET /api/k/:slug` — return JSON of all claims for that Khuwani (for polling)
+- `POST /api/k/:slug/claim` — body: `{ quran_number, sipara_number, participant_name }` — claim a Sipara (returns error if already taken)
+- `POST /api/k/:slug/unclaim` — body: `{ quran_number, sipara_number, participant_name }` — release a Sipara (only if name matches)
+
+---
+
+## Slug Generation
+
+When creating a Khuwani, generate a URL slug like this:
+- Take marhoom name → lowercase → replace spaces with `-` → remove special characters
+- Append 5 random alphanumeric characters
+- Example: "Haji Abdul Rehman" → `haji-abdul-rehman-x7k2p`
+- Make sure it is unique in the database
+
+---
+
+## Pages & UI
+
+### Page 1: `/organizer/login` — Organizer Login/Register
+
+A clean, elegant page with:
+- Tab switcher: "Login" / "Register"
+- Email + password fields
+- Submit button
+- Error messages shown inline
+- After login → redirect to `/organizer/dashboard`
+
+### Page 2: `/organizer/dashboard` — Organizer Dashboard
+
+Header with: "Quran Khuwani Tracker" + logged-in email + Logout button
+
+**Create New Khuwani form:**
+- Input: Marhoom / Marhooma's Name (text)
+- Input: Number of Qurans to complete (number picker, min 1, max 10)
+- Button: "Create Khuwani"
+
+**List of existing Khuwanies:**
+For each Khuwani show:
+- Marhoom name
+- Created date
+- Progress: e.g. "45 / 60 Siparas claimed" with a progress bar
+- Per-Quran progress: e.g. "Quran 1: 28/30 | Quran 2: 17/30"
+- Buttons: "📋 Copy Public Link", "🔄 Reset Claims", "🗑 Delete"
+- Small shareable URL shown below: `yoursite.com/k/haji-abdul-rehman-x7k2p`
+
+### Page 3: `/k/:slug` — Participant View (Public, No Login)
+
+**On first visit:**
+Show a centered welcome screen with:
+- Bismillah in Arabic: بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيْمِ
+- "Quran Khuwani for"
+- Marhoom's name (large, prominent)
+- "Enter your name to participate" label
+- Name input field
+- "Continue" button
+- Name is saved in localStorage so they don't have to re-enter
+
+**Main Sipara Grid screen:**
+
+Top bar:
+- Bismillah (small, Arabic)
+- Marhoom's name
+- "👤 [Participant Name]" badge on the right
+
+If num_qurans > 1, show Quran tab switcher:
+- Tab buttons: "Quran 1 (28/30)", "Quran 2 (5/30)", etc.
+- Active tab highlighted
+
+Progress bar for current Quran showing X/30 Siparas claimed
+
+**The 30 Sipara cards** in a responsive grid (5–6 per row on desktop, 3 on mobile):
+
+Each card shows:
+- Arabic numeral (١, ٢, ٣...)
+- Sipara number (1, 2, 3...)
+- Sipara name (e.g. "Alif Laam Meem", "Sayaqool", etc.)
+- Status:
+  - **Available:** dark green card, "Tap to claim" in small text → clicking it claims it immediately
+  - **Claimed by you:** bright green card, "✓ You" badge → clicking releases it
+  - **Claimed by others:** amber/gold card, shows the person's name → clicking does nothing (not clickable)
+
+When all 30 Siparas of a Quran are claimed, show a completion banner:
+"🌙 Alhamdulillah! Quran [N] Complete! 🌙"
+
+Auto-refresh every 8 seconds (fetch `/api/k/:slug` and update the grid without full page reload).
+
+Legend at the bottom:
+- Green dot = Available
+- Bright green = Your Sipara  
+- Gold = Claimed by others
+
+Footer note: "↻ Auto-refreshes every 8 seconds • Tap your Sipara to release it"
+
+---
+
+## Sipara Names (use these exactly, in order 1–30)
+
+1. Alif Laam Meem
+2. Sayaqool
+3. Tilkal Rusul
+4. Lan Tana Loo
+5. Wal Mohsanat
+6. La Yuhibbullah
+7. Wa Iza Samiu
+8. Wa Lau Annana
+9. Qalal Malao
+10. Wa A'lamu
+11. Yata Zeroon
+12. Wa Mamin Dabbatin
+13. Wa Ma Ubrioo
+14. Rubama
+15. Subhanalladhi
+16. Qal Alam
+17. Iqtarabo
+18. Qadd Aflaha
+19. Wa Qalalladhina
+20. Amman Khalaqa
+21. Utlu Ma Oohi
+22. Wa Man Yaqnut
+23. Wa Mali
+24. Faman Azlamu
+25. Ilaihi Yuraddu
+26. Ha Meem
+27. Qala Fama Khatbukum
+28. Qadd Sami Allah
+29. Tabarakallazi
+30. Amma
+
+---
+
+## Design & Aesthetic
+
+Use a dark, elegant Islamic-inspired theme:
+
+**Colors:**
+- Background: very dark green-black `#070c07`
+- Cards (free): dark green `#1a2e1a`
+- Cards (mine): bright green `#2e7d32` with glow
+- Cards (others): warm amber `#5a3e00`
+- Accent/gold: `#c9a96e`
+- Text primary: `#e8d5b0` (warm off-white)
+- Text secondary: `#888`
+
+**Fonts:**
+- Use Google Font: `Amiri` for Arabic text
+- Use `Lato` or `Open Sans` for English UI text
+
+**Details:**
+- Rounded cards with subtle borders
+- Smooth hover effects on available Siparas (slight lift + glow)
+- Progress bar with gradient from green to gold
+- Mobile responsive — works perfectly on phone (this is primarily a WhatsApp-shared mobile app)
+- Smooth fade-in animation when page loads
+- No clutter, clean and respectful aesthetic
+
+---
+
+## File Structure
+
+```
+/
+├── server.js          ← Express app, all routes
+├── database.js        ← SQLite setup, all DB functions
+├── package.json
+├── .env               ← SESSION_SECRET
+└── public/
+    ├── organizer/
+    │   ├── login.html
+    │   └── dashboard.html
+    └── participant/
+        └── khuwani.html   ← served for all /k/:slug routes
+```
+
+All HTML pages can use inline `<script>` and `<style>` tags — no separate CSS/JS files needed.
+
+---
+
+## Additional Requirements
+
+1. **Prevent race conditions:** The `UNIQUE` constraint on `claims` table handles double-booking at the DB level. If two people click the same Sipara simultaneously, only one succeeds — the other gets a friendly error: "Sorry, this Sipara was just claimed by someone else. Please choose another."
+
+2. **No participant login:** Participant identity is just their name (string). They are identified by matching `participant_name` when unclaiming. Store their name in `localStorage` with key `khuwaani_participant_name`.
+
+3. **Organizer password security:** Hash passwords with `bcryptjs` (saltRounds: 10). Never store plain text passwords.
+
+4. **Environment variable:** Use `SESSION_SECRET` from `.env` for express-session. Default to a random string if not set.
+
+5. **Error handling:** All API endpoints return JSON `{ success: true/false, message: "..." }`. Show user-friendly error messages on the frontend.
+
+6. **Responsive design:** The Sipara grid must work on mobile. Use CSS Grid with `repeat(auto-fill, minmax(100px, 1fr))` so it adapts to screen size.
+
+7. **Copy link button:** Use `navigator.clipboard.writeText()` and show a "Copied!" tooltip for 2 seconds.
+
+8. **On Replit:** Make sure the app listens on `process.env.PORT || 3000` so it works with Replit's port system.
+
+---
+
+## package.json dependencies
+
+```json
+{
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^9.4.3",
+    "bcryptjs": "^2.4.3",
+    "express-session": "^1.17.3",
+    "dotenv": "^16.3.1"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+```
+
+---
+
+## First Run Behavior
+
+On first run, the app should:
+1. Create the SQLite database file (`khuwani.db`) automatically
+2. Create all tables if they don't exist
+3. Start the server
+4. Show a console message: `Server running on port 3000`
+
+No manual setup required — it should just work on Replit by clicking Run.
+
+---
+
+Build the complete app now. Make it production-ready, mobile-friendly, and beautiful.
